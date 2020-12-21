@@ -1,0 +1,18 @@
+---
+# binaries
+helm:
+  binary: /usr/local/bin/helm
+  version: v3.4.1
+  arch: linux-amd64
+kubectl:
+  binary: /usr/local/bin/kubectl
+  # https://storage.googleapis.com/kubernetes-release/release/stable.txt
+  version: v1.20.0
+
+# charts
+default_charts: {}
+cloud_charts: {}
+environment_charts: {}
+
+
+

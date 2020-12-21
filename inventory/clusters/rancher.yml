@@ -1,0 +1,4 @@
+plugin: rancher
+rancher_host: '127.0.0.1'
+labels_groups: ['environment_stage', 'cloud_provider']
+managed_label: 'ansible_managed'

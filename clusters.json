@@ -1,0 +1,5 @@
+[
+  { "name": "demo1", "labels": { "ansible_managed": "true","cloud_provider": "azure", "environment_stage": "staging"}},
+  { "name": "demo2", "labels": { "ansible_managed": "true","cloud_provider": "aws", "environment_stage": "staging"}},
+  { "name": "demo3", "labels": { "ansible_managed": "true","cloud_provider": "aws", "environment_stage": "production"}}
+]

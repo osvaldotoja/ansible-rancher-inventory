@@ -1,0 +1,10 @@
+---
+# AWS template
+domainFilters: ["example.org"]
+aws:
+  zoneType: "public"
+  assumeRoleArn: "{{ external_dns_assume_role_arn"
+  txtOwnerId: {{ inventory_hostname }}
+rbac:
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: {{ external_dns_irsa_arn }}

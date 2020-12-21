@@ -1,0 +1,7 @@
+---
+environment_stage: staging
+environment_charts:
+  podinfo:
+    values:
+      image:
+        tag: 5.1.2

@@ -1,0 +1,19 @@
+---
+k8s_distro: k3d
+
+
+# Common charts to all clusters
+default_charts:
+  podinfo:
+    chart_name: "podinfo"
+    namespace: "default"
+    chart_version: "5.1.1"
+    state: present
+    source:
+      type: repo
+      location: https://stefanprodan.github.io/podinfo
+      name: podinfo
+    values:
+      ui:
+        message: "Hello world from ansible group_vars default"
+        color: "#34577c"

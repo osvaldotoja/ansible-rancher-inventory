@@ -1,0 +1,7 @@
+---
+cloud_name: azure
+cloud_charts:
+  podinfo:
+    values:
+      ui:
+        message: "Running on Azure"

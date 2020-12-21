@@ -1,0 +1,7 @@
+---
+cloud_name: aws
+cloud_charts:
+  podinfo:
+    values:
+      ui:
+        message: "Running on AWS"

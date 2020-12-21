@@ -1,0 +1,10 @@
+---
+# Azure template
+domainFilters: ["example.org"]
+provider: "aws"
+aws:
+  zoneType: "public"
+  credentials:
+    accessKey: "{{ azure_dns_route53_accessKey }}"
+    secretKey: "{{ azure_dns_route53_secretKey }}"
+  txtOwnerId: {{ inventory_hostname }}

@@ -1,0 +1,6 @@
+cluster_charts:
+  podinfo:
+    values:
+      ui:
+        message: "Running on demo2 cluster"
+

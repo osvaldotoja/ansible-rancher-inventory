@@ -1,0 +1,221 @@
+---
+# TODO: fix [204] Lines should be no longer than 160 chars
+
+#
+# ---- charts ---
+#
+- name: get list of default and cloud charts
+  set_fact:
+    charts: "{{ default_charts | combine(cloud_charts, recursive=True) }}"
+- name: adding environment charts
+  set_fact:
+    charts: "{{ charts | combine(environment_charts, recursive=True) }}"
+- name: add cluster specific charts
+  set_fact:
+    charts: "{{ charts | combine(cluster_charts, recursive=True) }}"
+  when: cluster_charts is defined and cluster_charts
+- name: override charts if needed
+  set_fact:
+    charts: "{{ overrideCharts }}"
+  when: overrideCharts is defined and overrideCharts
+
+# - debug: var=charts
+# - debug: var=overrideCharts
+#   when: overrideCharts is defined and overrideCharts
+
+#
+# ---- role global variables ---
+#
+- name: Set role name
+  set_fact:
+    roleName: "helm_deploy"
+- name: Path to helm chart templates
+  set_fact:
+    helmTemplatesDir: "roles/{{ roleName }}/templates"
+
+#
+# ---- working dir ---
+#
+- name: create temporary build directory
+  tempfile:
+    state: directory
+    path: tmp
+    prefix: "cluster-"
+    suffix: "-{{ inventory_hostname }}"
+  register: manifests_dir
+# - debug: var=manifests_dir
+
+
+#
+# ---- cloud specific variables ---
+#
+- name: aws cloud
+  block:
+  - name: collecting variables
+    debug: msg="collecting cloud specific variables"
+  - name: get aws variables
+    set_fact:
+      aws_account_id: "{{ aws.account_id | default('') }}"
+      aws_route53_assume_role: "{{ aws.route53_assume_role | default('') }}"
+  - name: set aws variables
+    set_fact:
+      external_dns_assume_role_arn: "arn:aws:iam::{{ aws_account_id }}:role/{{ aws_route53_assume_role }}"
+  - debug: var=aws_account_id
+  # - name: sanity check
+  #   meta: end_play
+  #   when: aws_account_id | length == 0 or alb_ingress_irsa_arn | length == 0 or external_dns_irsa_arn | length == 0 or cluster_autoscaler_irsa_arn | length == 0 # noqa 204
+  when: "'aws' in hostvars[inventory_hostname]['group_names']"
+
+- name: azure cloud
+  block:
+  - name: collecting variables
+    debug: msg="collecting cloud specific variables"
+  - name: get azure variables
+    set_fact:
+      azure_dns_route53_accessKey: "{{ credentials.azure.dns.route53_access_key | default('') }}"
+      azure_dns_route53_secretKey: "{{ credentials.azure.dns.route53_secret_access | default('') }}"
+  # - name: sanity check
+  #   meta: end_play
+  #   when: azure_dns_route53_accessKey | length == 0 or azure_dns_route53_secretKey
+  when: "'azure' in hostvars[inventory_hostname]['group_names']"
+
+
+#
+# ---- environment variables ---
+#
+- name: set rancher variables
+  # RANCHER_HOST=192.168.1.185:36856
+  # RANCHER_BEARER_TOKEN=token-gl22j:h57kp9rzt7fn98gsx5k2n9rcrrhfz6rcjlssmlgknqj9h2vdbcn9cn
+  set_fact:
+    rancher_server: "{{ lookup('env','RANCHER_HOST') }}"
+    rancher_access_key: "{{ lookup('env','RANCHER_BEARER_TOKEN').split(':')[0] }}"
+    rancher_secret_key: "{{ lookup('env','RANCHER_BEARER_TOKEN').split(':')[1] }}"
+
+# ---- helm charts values files ---
+#
+- name: Template Helm values files
+  template:
+    src: "{{ lookup('first_found', helm_values_template_files) }}"
+    dest: "{{ manifests_dir.path }}/values.{{ item.value.chart_name }}.yaml"
+    mode: '0600'
+  loop: "{{ charts | dict2items }}"
+  vars:
+    helm_values_template_files:
+      - "{{ helmTemplatesDir }}/{{ item.value.chart_name }}/values.{{ inventory_hostname }}.{{ cloud_name }}.yaml.j2"
+      - "{{ helmTemplatesDir }}/{{ item.value.chart_name }}/values.{{ cloud_name }}.yaml.j2"
+      - "{{ helmTemplatesDir }}/{{ item.value.chart_name }}/values.yaml.j2"
+
+#
+# ---- install tooling ---
+#
+# to be removed when added to base image
+- name: Retrieve helm binary archive.
+  unarchive:
+    src: https://get.helm.sh/helm-{{ helm.version }}-linux-amd64.tar.gz
+    dest: /tmp
+    creates: "{{ helm.binary }}"
+    remote_src: yes
+- name: Move helm binary into place.
+  command: "cp /tmp/linux-amd64/helm {{ helm.binary }}"
+  args:
+    creates: "{{ helm.binary }}"
+- name: Retrieve kubectl binary archive.
+  get_url:
+    url: https://storage.googleapis.com/kubernetes-release/release/{{ kubectl.version }}/bin/linux/amd64/kubectl
+    dest: "{{ kubectl.binary }}"
+    mode: '0755'
+
+
+#
+# ---- cluster data from rancher ---
+#
+- name: get cluster id by name
+  uri:
+    url: "https://{{ rancher_server }}/v3/clusters?name={{ inventory_hostname }}"
+    user: "{{ rancher_access_key }}"
+    password: "{{ rancher_secret_key }}"
+    method: GET
+    force_basic_auth: yes
+    validate_certs: no
+  register: cluster_result
+- name: get cluster kubeconfig
+  uri:
+    url: "{{ cluster_result.json | json_query('data[?name==`' + inventory_hostname + '`].actions.generateKubeconfig') | first }}"
+    user: "{{ rancher_access_key }}"
+    password: "{{ rancher_secret_key }}"
+    method: POST
+    body: "{}"
+    force_basic_auth: yes
+    body_format: json
+    validate_certs: no
+  register: kubeconfig_result
+- name: Write out cluster kubeconfig
+  copy:
+    content: "{{ kubeconfig_result.json.config }}"
+    dest: "{{ manifests_dir.path }}/.kubeconfig"
+    mode: '0600'
+
+#
+# ---- charts repositories ---
+#
+- name: Add helm repositories
+  command: >
+    {{ helm.binary }} repo add \
+      {{ item.value.source.name }} \
+      {{ item.value.source.location }}
+  when: item.value.source.type == "repo"
+  loop: "{{ charts | dict2items  }}"
+  register: cmd_out
+
+# Pre helm install custom manifests
+# TODO: add code for pre helm install manifests
+
+- name: Deploy charts # noqa 301
+  command: >
+    {{ helm.binary }} upgrade \
+      --install -f {{ manifests_dir.path }}/values.{{ item.value.chart_name }}.yaml \
+      --create-namespace --namespace {{ item.value.namespace }} \
+      {{ item.value.chart_name }} \
+      {{ item.value.source.name }}/{{ item.value.chart_name  }}
+  environment:
+    KUBECONFIG: "{{ manifests_dir.path }}/.kubeconfig"
+  loop: "{{ charts | dict2items  }}"
+  register: cmd_out
+
+- name: deploy output
+  debug: var=cmd_out
+
+
+# Post helm install custom manifests
+- name: Template post Helm install values files
+  template:
+    src: "{{ lookup('first_found', post_install_template_files) }}"
+    dest: "{{ manifests_dir.path }}/post.{{ item.value.chart_name }}.yaml"
+    mode: '0600'
+  loop: "{{ charts | dict2items }}"
+  vars:
+    post_install_template_files:
+      - "{{ helmTemplatesDir }}/{{ item.value.chart_name }}/manifests/post.{{ inventory_hostname }}.{{ k8s_distro }}.yaml.j2"
+      - "{{ helmTemplatesDir }}/{{ item.value.chart_name }}/manifests/post.{{ k8s_distro }}.yaml.j2"
+      - "{{ helmTemplatesDir }}/{{ item.value.chart_name }}/manifests/post.yaml.j2"
+
+- name: Post helm install manifests # noqa 301
+  command: >
+    {{ kubectl.binary }} \
+      apply -f {{ manifests_dir.path }}/post.{{ item.value.chart_name }}.yaml \
+      --namespace {{ item.value.namespace }}
+  environment:
+    KUBECONFIG: "{{ manifests_dir.path }}/.kubeconfig"
+  loop: "{{ charts | dict2items  }}"
+  register: cmd_out
+
+- name: deploy output
+  debug: var=cmd_out
+# - meta: end_play
+
+- name: clean up generated manifests
+  file:
+    path: "{{ manifests_dir.path }}"
+    state: absent
+  when: manifests_dir.path is defined and debug_play is not defined
+
